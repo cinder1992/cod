@@ -28,6 +28,7 @@ VERSION = "0.8"
 
 from niilib import config
 from niilib import log
+from niilib.message import IRCMessage
 import socket
 import os
 import sys
@@ -66,6 +67,7 @@ class Cod():
 
         self.bursted = False
         self.db = None
+        self.sid = ""
 
         #Load config file
         self.config = config.Config(configpath).config
@@ -115,6 +117,10 @@ class Cod():
 
         self.log("done")
 
+        self.sid = self.getSID()
+
+        self.log("SID is %s" % self.sid)
+
         self.log("Loading %s protocol module" %
                 self.config["uplink"]["protocol"])
 
@@ -141,14 +147,35 @@ class Cod():
         #Inform operators that Cod is initialized
         self.log("Cod initialized", "!!!")
 
-    def getUID(self):
+    def getUID(self, sid=None):
         """
         Returns a valid, unique TS6 UID for use with services clients
         """
+
+        if sid == None:
+            sid = self.sid
+
         ret = self.lastid
         self.lastid = self.lastid + 1
 
-        return self.config["uplink"]["sid"] + str(ret)
+        return sid + str(ret)
+
+    def getSID(self, string=None):
+        """
+        Returns a server ID number based on the string provided, default is
+        the configured server name and description, much like how inpsircd
+        does SID generation..
+        """
+
+        if string == None:
+            string = self.config["me"]["name"] + self.config["me"]["desc"]
+
+        hashval = 1
+        for char in string:
+            char = ord(char)
+            hashval = hashval * (char * (char + 1))
+
+        return str(hashval)[:3]
 
     def loadmod(self, modname):
         """
@@ -178,8 +205,7 @@ class Cod():
             self.servicesLog(e)
             return
 
-        if self.bursted:
-            self.log("Module %s loaded" % modname)
+        self.log("Module %s loaded" % modname)
 
         sys.path[:] = oldpath
 
@@ -213,6 +239,7 @@ class Cod():
         self.config = config.Config("config.json").config
 
         for module in self.modules:
+            cod.log("Rehashing %s" % module, "===")
             self.modules[module].rehash()
 
         self.log("Rehash complete")
@@ -298,7 +325,7 @@ class Cod():
         arbitrary SNOMASK, but the default is the debug SNOMASK.
         """
         self.sendLine(":%s ENCAP * SNOTE %s :%s" % \
-                (self.config["uplink"]["sid"], mask, line))
+                (self.sid, mask, line))
 
     def log(self, message, prefix="---"):
         """
@@ -379,6 +406,8 @@ for line in cod.link.makefile('r'):
     #Strip \r\n
     line = line.strip()
 
+    lineobj = IRCMessage(line)
+
     #debug output
     if cod.config["etc"]["debug"]:
         cod.log(line, "<<<")
@@ -386,8 +415,8 @@ for line in cod.link.makefile('r'):
     splitline = line.split()
 
     #Ping handler.
-    if line[0] != ":":
-        if line.split()[0] == "PING":
+    if lineobj.source == None:
+        if lineobj.verb == "PING":
             cod.sendLine("PONG %s" % splitline[1:][0])
 
             if not cod.bursted:
@@ -402,10 +431,10 @@ for line in cod.link.makefile('r'):
 
     #Handle server commands
     else:
-        source = splitline[0][1:]
+        source = lineobj.source
 
         try:
-            for impl in cod.s2scommands[splitline[1]]:
+            for impl in cod.s2scommands[lineobj.verb]:
                 impl(cod, line, splitline, source)
         except KeyError as e:
             pass

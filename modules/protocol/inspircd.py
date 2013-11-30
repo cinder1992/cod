@@ -25,6 +25,7 @@ freely, subject to the following restrictions:
 from structures import *
 from utils import *
 import time
+import sys
 
 NAME="inspircd protocol module"
 DESC="Handles login and protocol commands for inspircd"
